@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ja">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>MCP Chat UI</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                background: #f6f7fb;
+                color: #1f2937;
+                min-height: 100vh;
+                display: grid;
+                place-items: center;
+                padding: 20px;
+            }
+
+            .chat {
+                width: min(900px, 100%);
+                height: min(80vh, 820px);
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+                display: grid;
+                grid-template-rows: auto 1fr auto;
+                overflow: hidden;
+            }
+
+            .header {
+                padding: 14px 18px;
+                border-bottom: 1px solid #e5e7eb;
+                font-weight: 700;
+            }
+
+            .messages {
+                overflow-y: auto;
+                padding: 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                background: #fafafa;
+            }
+
+            .bubble {
+                max-width: 80%;
+                padding: 12px 14px;
+                border-radius: 12px;
+                white-space: pre-wrap;
+                line-height: 1.5;
+            }
+
+            .bubble.user {
+                align-self: flex-end;
+                background: #2563eb;
+                color: #fff;
+            }
+
+            .bubble.assistant {
+                align-self: flex-start;
+                background: #e5e7eb;
+                color: #111827;
+            }
+
+            .bubble a {
+                color: inherit;
+                text-decoration: underline;
+            }
+
+            .composer {
+                border-top: 1px solid #e5e7eb;
+                padding: 12px;
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 10px;
+                background: #fff;
+            }
+
+            textarea {
+                resize: none;
+                border-radius: 10px;
+                border: 1px solid #d1d5db;
+                padding: 10px 12px;
+                min-height: 52px;
+                max-height: 160px;
+                font: inherit;
+            }
+
+            button {
+                border: none;
+                border-radius: 10px;
+                padding: 0 16px;
+                background: #111827;
+                color: #fff;
+                font-weight: 600;
+                cursor: pointer;
+            }
+
+            button:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="chat">
+            <div class="header">OpenAI + MCP Chat</div>
+            <div id="messages" class="messages">
+                <div class="bubble assistant">こんにちは。</div>
+            </div>
+            <form id="chat-form" class="composer">
+                <textarea id="input" placeholder="例: 2026年1月の株式会社テックリンクへの請求額を教えて" required></textarea>
+                <button id="send" type="submit">送信</button>
+            </form>
+        </div>
+
+        <script>
+            const form = document.getElementById("chat-form");
+            const input = document.getElementById("input");
+            const sendButton = document.getElementById("send");
+            const messages = document.getElementById("messages");
+            const conversationHistory = [];
+
+            function appendLinkifiedText(container, text) {
+                const urlPattern = /(https?:\/\/[^\s]+)/g;
+                const lines = text.split("\n");
+
+                lines.forEach((line, lineIndex) => {
+                    let lastIndex = 0;
+
+                    line.replace(urlPattern, (match, _url, offset) => {
+                        if (offset > lastIndex) {
+                            container.appendChild(document.createTextNode(line.slice(lastIndex, offset)));
+                        }
+
+                        const anchor = document.createElement("a");
+                        anchor.href = match;
+                        anchor.textContent = "こちら";
+                        anchor.target = "_blank";
+                        anchor.rel = "noopener noreferrer";
+                        container.appendChild(anchor);
+                        lastIndex = offset + match.length;
+                        return match;
+                    });
+
+                    if (lastIndex < line.length) {
+                        container.appendChild(document.createTextNode(line.slice(lastIndex)));
+                    }
+
+                    if (lineIndex < lines.length - 1) {
+                        container.appendChild(document.createElement("br"));
+                    }
+                });
+            }
+
+            function addMessage(role, text) {
+                const bubble = document.createElement("div");
+                bubble.className = `bubble ${role}`;
+                appendLinkifiedText(bubble, text);
+                messages.appendChild(bubble);
+                messages.scrollTop = messages.scrollHeight;
+
+                if (role === "user" || role === "assistant") {
+                    conversationHistory.push({ role, content: text });
+                }
+            }
+
+            async function sendMessage(message, history) {
+                console.log("Sending message:", message);
+                const response = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message, history }),
+                });
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(payload.error || "通信に失敗しました");
+                }
+
+                return payload.text || "(応答が空です)";
+            }
+
+            form.addEventListener("submit", async (event) => {
+                event.preventDefault();
+
+                const message = input.value.trim();
+                if (!message) return;
+
+                addMessage("user", message);
+                input.value = "";
+                input.focus();
+                sendButton.disabled = true;
+
+                try {
+                    const answer = await sendMessage(message, conversationHistory.slice(0, -1));
+                    addMessage("assistant", answer);
+                } catch (error) {
+                    addMessage("assistant", `エラー: ${error.message}`);
+                } finally {
+                    sendButton.disabled = false;
+                }
+            });
+        </script>
+    </body>
+</html>
